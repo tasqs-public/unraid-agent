@@ -9,6 +9,7 @@ Requires a Tasqs **Premium** or **Power User** plan (webhooks).
 1. **Create a webhook in Tasqs.** Profile → **Webhooks** → **Add webhook**. Name it after the server ("TOWER"), pick the list the tasks should land in, leave the defaults (priority follows the alert's level, due today, repeats ignored for 24 h, auto-resolve on). Press **Copy** to copy the URL.
 2. **Put the script on the flash drive.** From the unRAID terminal (or any SSH session):
    ```bash
+   mkdir -p /boot/config/plugins/dynamix/notifications/agents   # unRAID creates it only once an agent is enabled
    curl -fsSL https://raw.githubusercontent.com/tasqs-public/unraid-agent/main/Tasqs.sh \
      -o /boot/config/plugins/dynamix/notifications/agents/Tasqs.sh
    chmod +x /boot/config/plugins/dynamix/notifications/agents/Tasqs.sh
