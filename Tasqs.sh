@@ -7,8 +7,7 @@
 #
 #     /boot/config/plugins/dynamix/notifications/agents/Tasqs.sh
 #
-# (the flash drive, so it survives reboots and upgrades), make it executable,
-# and tick the "Custom" column for the importance levels you want in
+# (the flash drive, so it survives reboots and upgrades) and tick the "Custom" column for the importance levels you want in
 # Settings → Notifications. Full instructions: README.md in this repo.
 #
 # unRAID hands each notification over as environment variables:
@@ -23,7 +22,7 @@
 # given a timeout. Results go to the system log (`logger -t tasqs`), never the
 # webhook URL.
 # =============================================================================
-VERSION='1.0.0'
+VERSION='1.0.1'
 
 # ── Configuration ────────────────────────────────────────────────────────────
 # Your webhook URL from Profile → Webhooks (the only required setting).
@@ -59,9 +58,9 @@ if [[ "${1:-}" == "--test" ]]; then
   if [[ "$HOOK" == *REPLACE_ME* ]]; then echo "Set HOOK in $0 first." >&2; exit 1; fi
   export EVENT='Tasqs test' IMPORTANCE='warning' HOSTNAME="${HOSTNAME:-$(hostname)}" TIMESTAMP="$(date +%s)"
   export SUBJECT="Warning [$HOSTNAME] - Tasqs agent test" DESCRIPTION="If you can read this as a task, the agent works. The next call completes it."
-  "$0"; sleep 2
+  bash "$0"; sleep 2          # bash, not "$0": /boot is mounted noexec on unRAID
   export IMPORTANCE='normal' SUBJECT="Notice [$HOSTNAME] - Tasqs agent returned to normal" DESCRIPTION="Resolving the test task."
-  "$0"
+  bash "$0"
   echo "Sent a warning and its all-clear. Check the dashboard (and Profile → Webhooks → Recent deliveries)."
   exit 0
 fi

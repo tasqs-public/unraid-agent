@@ -12,14 +12,13 @@ Requires a Tasqs **Premium** or **Power User** plan (webhooks).
    mkdir -p /boot/config/plugins/dynamix/notifications/agents   # unRAID creates it only once an agent is enabled
    curl -fsSL https://raw.githubusercontent.com/tasqs-public/unraid-agent/main/Tasqs.sh \
      -o /boot/config/plugins/dynamix/notifications/agents/Tasqs.sh
-   chmod +x /boot/config/plugins/dynamix/notifications/agents/Tasqs.sh
    nano /boot/config/plugins/dynamix/notifications/agents/Tasqs.sh   # paste your webhook URL into HOOK=
    ```
-   The agents folder lives on `/boot` (the USB flash drive), so the script survives reboots and unRAID upgrades.
+   The agents folder lives on `/boot` (the USB flash drive), so the script survives reboots and unRAID upgrades. The drive is mounted `noexec`, so there is no `chmod +x` — unRAID runs agents through `bash`, and so should you.
 3. **Tell unRAID which notifications to send.** Settings → **Notifications** → in the grid of importance levels, tick the **Custom** column for *Warning* and *Alert* (and *Notice* if you want everything). unRAID runs every script in the agents folder for the levels you ticked.
 4. **Test it.**
    ```bash
-   /boot/config/plugins/dynamix/notifications/agents/Tasqs.sh --test
+   bash /boot/config/plugins/dynamix/notifications/agents/Tasqs.sh --test
    ```
    That sends a sample warning and then its all-clear: a task appears on your Tasqs dashboard and completes two seconds later. Profile → Webhooks → **Recent deliveries** shows both. Or trigger a real one: `/usr/local/emhttp/webGui/scripts/notify -e "Test" -s "Warning [TOWER] - Disk 3 is hot" -d "41 C" -i warning`.
 
