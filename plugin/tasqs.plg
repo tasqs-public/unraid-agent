@@ -1,0 +1,67 @@
+<?xml version='1.0' standalone='yes'?>
+<!DOCTYPE PLUGIN [
+<!ENTITY name      "tasqs">
+<!ENTITY author    "Tasqs">
+<!ENTITY version   "2026.11.06">
+<!ENTITY launch    "Settings/Notifications">
+<!ENTITY gitURL    "https://raw.githubusercontent.com/tasqs-public/unraid-agent/main">
+<!ENTITY pluginURL "&gitURL;/plugin/tasqs.plg">
+]>
+
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="&gitURL;/plugin/tasqs.png" support="https://github.com/tasqs-public/unraid-agent" min="6.12.0">
+
+<CHANGES>
+##&version;
+- Tasqs notification agent 1.1.0: adds "Tasqs" to Settings -> Notifications -> Agents.
+  Every notification becomes a task in Tasqs; an all-clear completes it.
+  Source and changelog: https://github.com/tasqs-public/unraid-agent
+</CHANGES>
+
+<!-- The agent template. unRAID rebuilds / from the image at boot, so the plugin
+     re-installs this file every boot; the enabled agent itself lives on the
+     flash drive (/boot/config/plugins/dynamix/notifications/agents/Tasqs.sh)
+     and keeps your settings. -->
+<FILE Name="/usr/local/emhttp/plugins/dynamix/agents/Tasqs.xml">
+<URL>&gitURL;/plugin/Tasqs.xml</URL>
+<MD5>5bc1210399840ae9c9df181be1252f05</MD5>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/dynamix/icons/tasqs.png">
+<URL>&gitURL;/plugin/tasqs.png</URL>
+<MD5>7d223ad5dc816ef2af80c16d5b3a9f62</MD5>
+</FILE>
+
+<!-- What the Plugins page shows. -->
+<FILE Name="/usr/local/emhttp/plugins/&name;/README.md">
+<INLINE>
+**Tasqs**
+
+Turn unRAID notifications into tasks in Tasqs (tasqs.com). Adds a "Tasqs" agent to Settings -> Notifications -> Agents: paste your webhook URL, tick the levels to forward, done. A disk running hot becomes a task due today; when it returns to normal, the task completes itself. Needs a Tasqs Premium or Power User plan.
+</INLINE>
+</FILE>
+
+<FILE Run="/bin/bash">
+<INLINE>
+echo ""
+echo "-----------------------------------------------------------"
+echo " Tasqs notification agent installed."
+echo " Settings -> Notifications -> Agents -> Tasqs: paste your"
+echo " webhook URL (Profile -> Webhooks in Tasqs) and enable it."
+echo "-----------------------------------------------------------"
+echo ""
+</INLINE>
+</FILE>
+
+<!-- Removal: take the template and icon away. The enabled agent on the flash
+     drive is yours (it keeps working as a custom agent); delete it from the
+     Notifications page, or by hand, if you no longer want it. -->
+<FILE Run="/bin/bash" Method="remove">
+<INLINE>
+rm -f /usr/local/emhttp/plugins/dynamix/agents/Tasqs.xml
+rm -f /usr/local/emhttp/plugins/dynamix/icons/tasqs.png
+rm -rf /usr/local/emhttp/plugins/tasqs
+echo "Tasqs notification agent removed (your enabled agent on /boot was left in place)."
+</INLINE>
+</FILE>
+
+</PLUGIN>

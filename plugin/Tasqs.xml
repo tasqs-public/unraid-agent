@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <Agent>
+    <Name>Tasqs</Name>
+    <Variables>
+      <Variable Help="In Tasqs go to Profile -> Webhooks -> Add webhook, name it after this server, pick the list its tasks should land in, and press Copy. Paste the URL here. Each server should have its own webhook (Premium or Power User plan). [a href='https://tasqs.com/guide.php#webhooks' target='_blank'][u]Guide[/u][/a]" Desc="Webhook URL" Default="https://tasqs.com/hook/tqh_PASTE_YOUR_WEBHOOK_URL">HOOK_URL</Variable>
+      <Variable Help="Optional. If you turned on 'Require a signature' for the webhook, paste the secret Tasqs showed you. Every notification is then HMAC-signed and time-stamped, so the URL alone can add nothing even if it leaks. Leave 'none' otherwise." Desc="Signing secret" Default="none">SIGNING_SECRET</Variable>
+      <Variable Help="How to decide that two notifications are the same thing, so Tasqs skips repeats and an all-clear (e.g. 'returned to normal') completes the task the warning opened. 'stem' = the event plus the first two words of the subject (Disk 3). 'event' = one open task per event type. 'full' = every distinct wording is its own task." Desc="Match repeats by" Default="stem">KEY_MODE</Variable>
+      <Variable Help="Wording that means a notification is an all-clear. Case-insensitive, | separates alternatives." Desc="Resolved when subject contains" Default="returned to normal|is back|back online|finished|completed|resolved|restored|has been fixed">RESOLVE_PATTERN</Variable>
+    </Variables>
+    <Script>
+      <![CDATA[
+#!/bin/bash
+############
+{0}
+############
+
+############
+# Tasqs notification agent 1.1.0 — https://github.com/tasqs-public/unraid-agent
+#
+# Quick test with default values:
+#   bash /boot/config/plugins/dynamix/notifications/agents/Tasqs.sh
+# Quick test with values set through environment (all vars are optional)
+#   EVENT="My Event" SUBJECT="My Subject" DESCRIPTION="My Description" IMPORTANCE="alert" bash /boot/config/plugins/dynamix/notifications/agents/Tasqs.sh
+# Full test of notification system
+#   /usr/local/emhttp/webGui/scripts/notify -e "My Event" -s "My Subject" -d "My Description" -i "alert"
+# Send a sample warning and its all-clear:
+#   bash /boot/config/plugins/dynamix/notifications/agents/Tasqs.sh --test
+#
+# Results are logged with `logger -t tasqs`; the webhook URL is never logged.
+############
+
+# Map the Agents-tab fields onto the script's settings.
+VERSION='1.1.0'
+HOOK="${HOOK_URL:-}"
+SECRET="${SIGNING_SECRET:-}"; [[ "$SECRET" == none ]] && SECRET=''
+LEVELS='normal warning alert'            # the importance grid on the Notifications page is the filter
+KEY_MODE="${KEY_MODE:-stem}"
+RESOLVE_PATTERN="${RESOLVE_PATTERN:-returned to normal|is back|finished|completed|resolved}"
+TIMEOUT=10
+[[ "$HOOK" == *PASTE_YOUR_WEBHOOK_URL* ]] && HOOK=''
+
+log() { command -v logger >/dev/null && logger -t tasqs -- "$*"; }
+
+# ── Test mode: `Tasqs.sh --test` sends a sample warning + its all-clear ─────
+if [[ "${1:-}" == "--test" ]]; then
+  if [[ "$HOOK" == *REPLACE_ME* ]]; then echo "Set HOOK in $0 first." >&2; exit 1; fi
+  export EVENT='Tasqs test' IMPORTANCE='warning' HOSTNAME="${HOSTNAME:-$(hostname)}" TIMESTAMP="$(date +%s)"
+  export SUBJECT="Warning [$HOSTNAME] - Tasqs agent test" DESCRIPTION="If you can read this as a task, the agent works. The next call completes it."
+  bash "$0"; sleep 2          # bash, not "$0": /boot is mounted noexec on unRAID
+  export IMPORTANCE='normal' SUBJECT="Notice [$HOSTNAME] - Tasqs agent returned to normal" DESCRIPTION="Resolving the test task."
+  bash "$0"
+  echo "Sent a warning and its all-clear. Check the dashboard (and Profile → Webhooks → Recent deliveries)."
+  exit 0
+fi
+if [[ "${1:-}" == "--version" ]]; then echo "Tasqs.sh $VERSION"; exit 0; fi
+
+# ── Guards and defaults (the built-in agents' conventions) ─────────────────
+[[ "$HOOK" == *REPLACE_ME* || -z "$HOOK" ]] && { log "HOOK not set; edit $0"; exit 0; }
+IMP="${IMPORTANCE:-normal}"
+case " $LEVELS " in *" $IMP "*) ;; *) exit 0 ;; esac          # level not forwarded
+EVENT="${EVENT:-Unraid Status}"
+SUBJ="${SUBJECT:-Notification}"                                # what the Agents-tab Test button sends: no env at all
+DESCRIPTION="${DESCRIPTION:-}"
+[[ "$DESCRIPTION" == 'No description' ]] && DESCRIPTION=''
+# unRAID passes literal \n sequences in reports; make them real line breaks.
+DESCRIPTION=${DESCRIPTION//\\r\\n/$'\n'}; DESCRIPTION=${DESCRIPTION//\\n/$'\n'}; DESCRIPTION=${DESCRIPTION//\\r/$'\n'}
+[[ -n "${CONTENT:-}" ]] && DESCRIPTION="${DESCRIPTION:+$DESCRIPTION$'\n\n'}${CONTENT//\\n/$'\n'}"
+
+# ── Key: what makes this notification "the same thing" next time ────────────
+# Strip unRAID's "Warning [TOWER] - " prefix when present, then take the stem.
+BARE=$(sed -E 's/^(Notice|Warning|Alert|Normal|Info)[[:space:]]*\[[^]]*\][[:space:]]*-[[:space:]]*//I' <<<"$SUBJ")
+case "$KEY_MODE" in
+  event) KEY="${EVENT:-unraid}" ;;
+  full)  KEY="${EVENT:-unraid}|$(tr '[:upper:]' '[:lower:]' <<<"$BARE")" ;;
+  *)     KEY="${EVENT:-unraid}|$(awk '{k=$1; if ($2!="") k=k" "$2; print tolower(k)}' <<<"$BARE")" ;;
+esac
+# Lower-case "normal" wording so "Disk 3 is hot" and "Disk 3 returned to normal" share a stem.
+
+# ── Resolve? ────────────────────────────────────────────────────────────────
+RESOLVE=false
+grep -qiE "$RESOLVE_PATTERN" <<<"$SUBJ $DESCRIPTION" && RESOLVE=true
+
+# ── Build the request (form-encoded; one code path, signed or not) ─────────
+HOST="${HOSTNAME:-$(hostname 2>/dev/null || echo unraid)}"
+TS="${TIMESTAMP:-$(date +%s)}"
+# Idempotency: a retry after a timeout must never make a second task.
+IDEM=$(printf '%s|%s|%s' "$TS" "${EVENT:-}" "$SUBJ" | md5sum | cut -c1-32)
+
+# Percent-encode (RFC 3986 unreserved set kept; UTF-8 bytes encoded).
+urlenc() {
+  local LC_ALL=C s="$1" out='' i c
+  for (( i = 0; i < ${#s}; i++ )); do
+    c="${s:i:1}"
+    case "$c" in [a-zA-Z0-9.~_-]) out+="$c" ;; *) printf -v c '%%%02X' "'$c"; out+="$c" ;; esac
+  done
+  printf '%s' "$out"
+}
+field() { printf '%s=%s' "$1" "$(urlenc "$2")"; }
+
+BODY="$(field title "$BARE")&$(field body "$DESCRIPTION")&$(field level "$IMP")&$(field key "$KEY")"
+BODY+="&$(field source "$HOST")&$(field timestamp "$TS")&$(field resolve "$RESOLVE")&$(field idempotency_key "$IDEM")"
+[[ -n "${LINK:-}" && "$LINK" == https://* ]] && BODY+="&$(field url "$LINK")"
+
+HDRS=(-H 'Content-Type: application/x-www-form-urlencoded')
+if [[ -n "$SECRET" ]]; then
+  # Signed mode: v1=HMAC-SHA256(secret, "<ts>.<raw body>") over the exact bytes sent.
+  NOW=$(date +%s)
+  SIG=$(printf '%s.%s' "$NOW" "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')
+  HDRS+=(-H "X-Tasqs-Timestamp: $NOW" -H "X-Tasqs-Signature: v1=$SIG")
+fi
+
+RESP=$(curl -sS -m "$TIMEOUT" --retry 2 --retry-connrefused -X POST "$HOOK" "${HDRS[@]}" --data-binary "$BODY" -w '\n%{http_code}' 2>&1)
+
+CODE="${RESP##*$'\n'}"
+BODY_OUT="${RESP%$'\n'*}"
+STATUS=$(sed -n 's/.*"status":"\([a-z_]*\)".*/\1/p' <<<"$BODY_OUT")
+case "$CODE" in
+  201|200) log "$IMP → ${STATUS:-ok} (${KEY})" ;;
+  404)     log "webhook not found or paused (404) — check HOOK and the card at tasqs.com/profile.php#webhooks" ;;
+  401)     log "bad signature (401) — SECRET does not match the webhook" ;;
+  429)     log "over the hourly limit (429); unRAID is probably looping" ;;
+  *)       log "delivery failed ($CODE): ${BODY_OUT:0:160}" ;;
+esac
+exit 0
+      ]]>
+    </Script>
+  </Agent>

@@ -4,7 +4,22 @@ Turn unRAID notifications into tasks in [Tasqs](https://tasqs.com). A disk runni
 
 Requires a Tasqs **Premium** or **Power User** plan (webhooks).
 
-## Install (five minutes)
+## Install as a plugin (shows up on the Agents tab)
+
+The plugin adds **Tasqs** to Settings → Notifications → **Agents**, next to Discord and Pushover, with its own column in the importance grid. Nothing to edit by hand.
+
+1. Plugins → **Install Plugin** → paste
+   ```
+   https://raw.githubusercontent.com/tasqs-public/unraid-agent/main/plugin/tasqs.plg
+   ```
+2. Settings → Notifications → **Agents** → **Tasqs**: paste your webhook URL (Tasqs → Profile → Webhooks → Add webhook → Copy), press **Apply**, then **Test**. A task called "Notification" appears in Tasqs.
+3. Back on the **Notifications** tab, tick the **Tasqs** column for Warning and Alert (and Notice if you want everything).
+
+The plugin re-installs the agent template at every boot (unRAID rebuilds its root filesystem from the image); your settings live on the flash drive with the other agents and survive. Removing the plugin leaves the enabled agent in place — it keeps working as a custom agent until you delete it from the Notifications page.
+
+The Agents-tab fields: **Webhook URL** · **Signing secret** (optional) · **Match repeats by** (`stem` / `event` / `full`, see below) · **Resolved when subject contains**.
+
+## Install as a script (no plugin)
 
 1. **Create a webhook in Tasqs.** Profile → **Webhooks** → **Add webhook**. Name it after the server ("TOWER"), pick the list the tasks should land in, leave the defaults (priority follows the alert's level, due today, repeats ignored for 24 h, auto-resolve on). Press **Copy** to copy the URL.
 2. **Put the script on the flash drive.** From the unRAID terminal (or any SSH session):
@@ -62,7 +77,7 @@ If your unRAID build lists an **ntfy** agent on the Agents tab, that works witho
 
 ## Development
 
-`bash test/run.sh` runs 37 checks against a fake `curl` (key modes, prefix stripping, resolve detection, encoding, signing, exit codes). The server side of the contract is documented at [tasqs.com/api-documentation.php#webhooks](https://tasqs.com/api-documentation.php#webhooks).
+`Tasqs.sh` is the single source. `./build.sh` generates `plugin/Tasqs.xml` (the Agents-tab template — the config block becomes unRAID's `{0}` marker plus a mapping from the GUI fields) and `plugin/tasqs.plg` (the manifest, MD5-pinned to the committed files, so run it and commit the output after every change). `bash test/run.sh` runs 47 checks against a fake `curl`: the script directly, and the generated template with `{0}` substituted the way unRAID does it (key modes, prefix stripping, resolve detection, encoding, signing, the Test button's no-env run, exit codes). The server side of the contract is documented at [tasqs.com/api-documentation.php#webhooks](https://tasqs.com/api-documentation.php#webhooks).
 
 ## Licence
 

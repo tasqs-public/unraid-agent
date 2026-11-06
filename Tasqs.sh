@@ -22,7 +22,7 @@
 # given a timeout. Results go to the system log (`logger -t tasqs`), never the
 # webhook URL.
 # =============================================================================
-VERSION='1.0.1'
+VERSION='1.1.0'
 
 # ── Configuration ────────────────────────────────────────────────────────────
 # Your webhook URL from Profile → Webhooks (the only required setting).
@@ -66,12 +66,17 @@ if [[ "${1:-}" == "--test" ]]; then
 fi
 if [[ "${1:-}" == "--version" ]]; then echo "Tasqs.sh $VERSION"; exit 0; fi
 
-# ── Guards ──────────────────────────────────────────────────────────────────
-[[ "$HOOK" == *REPLACE_ME* ]] && { log "HOOK not set; edit $0"; exit 0; }
+# ── Guards and defaults (the built-in agents' conventions) ─────────────────
+[[ "$HOOK" == *REPLACE_ME* || -z "$HOOK" ]] && { log "HOOK not set; edit $0"; exit 0; }
 IMP="${IMPORTANCE:-normal}"
 case " $LEVELS " in *" $IMP "*) ;; *) exit 0 ;; esac          # level not forwarded
-SUBJ="${SUBJECT:-${EVENT:-unRAID notification}}"
-[[ -z "$SUBJ" ]] && exit 0
+EVENT="${EVENT:-Unraid Status}"
+SUBJ="${SUBJECT:-Notification}"                                # what the Agents-tab Test button sends: no env at all
+DESCRIPTION="${DESCRIPTION:-}"
+[[ "$DESCRIPTION" == 'No description' ]] && DESCRIPTION=''
+# unRAID passes literal \n sequences in reports; make them real line breaks.
+DESCRIPTION=${DESCRIPTION//\\r\\n/$'\n'}; DESCRIPTION=${DESCRIPTION//\\n/$'\n'}; DESCRIPTION=${DESCRIPTION//\\r/$'\n'}
+[[ -n "${CONTENT:-}" ]] && DESCRIPTION="${DESCRIPTION:+$DESCRIPTION$'\n\n'}${CONTENT//\\n/$'\n'}"
 
 # ── Key: what makes this notification "the same thing" next time ────────────
 # Strip unRAID's "Warning [TOWER] - " prefix when present, then take the stem.
@@ -79,7 +84,7 @@ BARE=$(sed -E 's/^(Notice|Warning|Alert|Normal|Info)[[:space:]]*\[[^]]*\][[:spac
 case "$KEY_MODE" in
   event) KEY="${EVENT:-unraid}" ;;
   full)  KEY="${EVENT:-unraid}|$(tr '[:upper:]' '[:lower:]' <<<"$BARE")" ;;
-  *)     KEY="${EVENT:-unraid}|$(awk '{print tolower($1" "$2)}' <<<"$BARE")" ;;
+  *)     KEY="${EVENT:-unraid}|$(awk '{k=$1; if ($2!="") k=k" "$2; print tolower(k)}' <<<"$BARE")" ;;
 esac
 # Lower-case "normal" wording so "Disk 3 is hot" and "Disk 3 returned to normal" share a stem.
 
@@ -104,7 +109,7 @@ urlenc() {
 }
 field() { printf '%s=%s' "$1" "$(urlenc "$2")"; }
 
-BODY="$(field title "$BARE")&$(field body "${DESCRIPTION:-}")&$(field level "$IMP")&$(field key "$KEY")"
+BODY="$(field title "$BARE")&$(field body "$DESCRIPTION")&$(field level "$IMP")&$(field key "$KEY")"
 BODY+="&$(field source "$HOST")&$(field timestamp "$TS")&$(field resolve "$RESOLVE")&$(field idempotency_key "$IDEM")"
 [[ -n "${LINK:-}" && "$LINK" == https://* ]] && BODY+="&$(field url "$LINK")"
 

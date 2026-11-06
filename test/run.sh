@@ -129,6 +129,39 @@ check "$RC" "0" "unconfigured HOOK exits 0"
 check "$(wc -c < "$FAKE_CURL_OUT" | tr -d ' ')" "0" "unconfigured HOOK sends nothing"
 grep -q 'HOOK not set' "$FAKE_LOG" && ok "unconfigured HOOK logs a hint" || bad "unconfigured HOOK log"
 
+# ── The generated Agents-tab template, with {0} substituted the way unRAID does ──
+bash "$ROOT/build.sh" >/dev/null
+python3 - "$ROOT/plugin/Tasqs.xml" "$TMP/Agent.sh" <<'PY'
+import sys, xml.etree.ElementTree as ET
+x = ET.parse(sys.argv[1]).getroot()
+script = x.find('Script').text
+vals = 'HOOK_URL="https://tasqs.example/hook/tqh_0123456789abcdef0123456789abcdef01234567"\nSIGNING_SECRET="none"\nKEY_MODE="stem"\nRESOLVE_PATTERN="returned to normal|is back"'
+open(sys.argv[2], 'w').write(script.replace('{0}', vals).lstrip())
+PY
+runa() { : > "$FAKE_CURL_OUT"; env -i PATH="$PATH" HOME="$HOME" FAKE_CURL_OUT="$FAKE_CURL_OUT" FAKE_LOG="$FAKE_LOG" "$@" bash "$TMP/Agent.sh"; RC=$?
+  BODY=$(sed -n 's/^B://p' "$FAKE_CURL_OUT"); declare -gA F=()
+  [[ -n "$BODY" ]] && while IFS='=' read -r k v; do F["$k"]=$(printf '%b' "${v//%/\\x}"); done < <(tr '&' '\n' <<<"$BODY"); }
+runa EVENT='Unraid Disk temperature' SUBJECT='Warning [TOWER] - Disk 3 is hot (41 C)' DESCRIPTION='x' IMPORTANCE=warning HOSTNAME=TOWER
+check "$RC" "0" "template: exits 0"
+check "${F[title]}" "Disk 3 is hot (41 C)" "template: same title handling as the script"
+check "${F[key]}" "Unraid Disk temperature|disk 3" "template: KEY_MODE from the GUI field"
+check "$(sed -n 's/^U://p' "$FAKE_CURL_OUT")" "https://tasqs.example/hook/tqh_0123456789abcdef0123456789abcdef01234567" "template: HOOK_URL from the GUI field"
+runa
+check "${F[title]}" "Notification" "template: Agents-tab Test button (no env) → 'Notification'"
+check "${F[key]}" "Unraid Status|notification" "template: Test button key from the defaults"
+runa SUBJECT='Notice [TOWER] - Disk 3 is back' IMPORTANCE=normal
+check "${F[resolve]}" "true" "template: RESOLVE_PATTERN from the GUI field"
+sed -i 's/^SIGNING_SECRET="none"/SIGNING_SECRET="tqhs_fromgui"/' "$TMP/Agent.sh"
+runa SUBJECT='x' IMPORTANCE=alert
+grep -q '^H:X-Tasqs-Signature: v1=' "$FAKE_CURL_OUT" && ok "template: SIGNING_SECRET from the GUI enables signing" || bad "template: signing from GUI"
+sed -i 's#^HOOK_URL=.*#HOOK_URL="https://tasqs.com/hook/tqh_PASTE_YOUR_WEBHOOK_URL"#' "$TMP/Agent.sh"
+runa SUBJECT='x' IMPORTANCE=alert
+check "$(wc -c < "$FAKE_CURL_OUT" | tr -d ' ')" "0" "template: the placeholder URL sends nothing"
+runa DESCRIPTION='line one\nline two' SUBJECT='x' IMPORTANCE=alert HOOK_URL=ignored
+sed -i 's#^HOOK_URL=.*#HOOK_URL="https://tasqs.example/hook/tqh_0123456789abcdef0123456789abcdef01234567"#' "$TMP/Agent.sh"
+runa DESCRIPTION='line one\nline two' SUBJECT='x' IMPORTANCE=alert
+check "${F[body]}" $'line one\nline two' "template: literal \\n in DESCRIPTION becomes a line break (the built-in agents' convention)"
+
 # ── Log never contains the token ────────────────────────────────────────────
 grep -q 'tqh_0123456789' "$FAKE_LOG" && bad "token leaked into the log" || ok "token never logged"
 
