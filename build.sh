@@ -5,7 +5,8 @@
 #                      → Agents → Tasqs). Same body as Tasqs.sh; its config block
 #                      is replaced by unRAID's {0} marker + a mapping from the
 #                      GUI fields to the script's variables.
-#   plugin/tasqs.plg   the plugin manifest: installs Tasqs.xml (and the icon)
+#   plugin/tasqs.plg   the plugin manifest: keeps Tasqs.xml (and the icon) on the
+#                      flash drive and copies them
 #                      into unRAID's dynamix agents folder, on install and again
 #                      at every boot (the root filesystem is rebuilt from the
 #                      image). Downloads both from this repo's raw URLs, MD5-pinned,
@@ -100,16 +101,18 @@ cat > "$OUT/tasqs.plg" <<EOF
   Source and changelog: https://github.com/tasqs-public/unraid-agent
 </CHANGES>
 
-<!-- The agent template. unRAID rebuilds / from the image at boot, so the plugin
-     re-installs this file every boot; the enabled agent itself lives on the
-     flash drive (/boot/config/plugins/dynamix/notifications/agents/Tasqs.sh)
+<!-- The agent template and icon are kept on the flash drive, so they are
+     downloaded once and found again at every boot without the network.
+     unRAID rebuilds / from the image at boot, so the install script below
+     copies them into the webGUI every boot; the enabled agent itself lives on
+     the flash drive (/boot/config/plugins/dynamix/notifications/agents/Tasqs.sh)
      and keeps your settings. -->
-<FILE Name="/usr/local/emhttp/plugins/dynamix/agents/Tasqs.xml">
+<FILE Name="/boot/config/plugins/&name;/Tasqs.xml">
 <URL>&gitURL;/plugin/Tasqs.xml</URL>
 <MD5>$md5xml</MD5>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/dynamix/icons/tasqs.png">
+<FILE Name="/boot/config/plugins/&name;/tasqs.png">
 <URL>&gitURL;/plugin/tasqs.png</URL>
 <MD5>$md5png</MD5>
 </FILE>
@@ -125,6 +128,9 @@ Turn unRAID notifications into tasks in Tasqs (tasqs.com). Adds a "Tasqs" agent 
 
 <FILE Run="/bin/bash">
 <INLINE>
+mkdir -p /usr/local/emhttp/plugins/dynamix/agents /usr/local/emhttp/plugins/dynamix/icons
+cp -f /boot/config/plugins/&name;/Tasqs.xml /usr/local/emhttp/plugins/dynamix/agents/Tasqs.xml || { echo "Tasqs: /boot/config/plugins/&name;/Tasqs.xml is missing"; exit 1; }
+cp -f /boot/config/plugins/&name;/tasqs.png /usr/local/emhttp/plugins/dynamix/icons/tasqs.png || { echo "Tasqs: /boot/config/plugins/&name;/tasqs.png is missing"; exit 1; }
 echo ""
 echo "-----------------------------------------------------------"
 echo " Tasqs notification agent installed."
@@ -143,6 +149,7 @@ echo ""
 rm -f /usr/local/emhttp/plugins/dynamix/agents/Tasqs.xml
 rm -f /usr/local/emhttp/plugins/dynamix/icons/tasqs.png
 rm -rf /usr/local/emhttp/plugins/tasqs
+rm -f /boot/config/plugins/&name;/Tasqs.xml /boot/config/plugins/&name;/tasqs.png
 echo "Tasqs notification agent removed (your enabled agent on /boot was left in place)."
 </INLINE>
 </FILE>
